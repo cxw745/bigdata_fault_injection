@@ -1,0 +1,70 @@
+{
+    "faults": [
+        {
+            "type": "data_bloat",
+            "count": 2,
+            "order": 1,
+            "enabled": true,
+            "description": "数据膨胀故障",
+            "params": {
+                "minutes_before": 3,
+                "minutes_after": 5,
+                "wait_minutes": 1
+            }
+        },
+        {
+            "type": "task_fail",
+            "count": 2,
+            "order": 2,
+            "enabled": true,
+            "description": "任务失败故障",
+            "params": {
+                "minutes_before": 3,
+                "minutes_after": 5,
+                "wait_minutes": 1
+            }
+        },
+        {
+            "type": "data_skew",
+            "count": 2,
+            "order": 3,
+            "enabled": true,
+            "description": "数据倾斜故障",
+            "params": {
+                "minutes_before": 3,
+                "minutes_after": 5,
+                "wait_minutes": 1
+            }
+        },
+        {
+            "type": "long_tail",
+            "count": 1,
+            "order": 4,
+            "enabled": false,
+            "description": "长尾任务故障",
+            "params": {
+                "minutes_before": 3,
+                "minutes_after": 5,
+                "wait_minutes": 1
+            }
+        },
+        {
+            "type": "network_latency",
+            "count": 1,
+            "order": 5,
+            "enabled": false,
+            "description": "网络延迟故障",
+            "params": {
+                "minutes_before": 3,
+                "minutes_after": 5,
+                "wait_minutes": 1
+            }
+        }
+    ],
+    "global_settings": {
+        "output_dir": "/tmp/fault_test_results",
+        "random_order": false,
+        "interval_between_faults": 120,
+        "interval_between_runs": 300
+    }
+}

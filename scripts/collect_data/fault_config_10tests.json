@@ -1,0 +1,65 @@
+{
+    "faults": [
+        {
+            "type": "data_bloat",
+            "count": 2,
+            "order": 1,
+            "enabled": true,
+            "params": {
+                "minutes_before": 3,
+                "minutes_after": 5,
+                "wait_minutes": 1
+            }
+        },
+        {
+            "type": "task_fail",
+            "count": 2,
+            "order": 2,
+            "enabled": true,
+            "params": {
+                "minutes_before": 3,
+                "minutes_after": 5,
+                "wait_minutes": 1
+            }
+        },
+        {
+            "type": "data_skew",
+            "count": 2,
+            "order": 3,
+            "enabled": true,
+            "params": {
+                "minutes_before": 3,
+                "minutes_after": 5,
+                "wait_minutes": 1
+            }
+        },
+        {
+            "type": "long_tail",
+            "count": 2,
+            "order": 4,
+            "enabled": true,
+            "params": {
+                "minutes_before": 3,
+                "minutes_after": 5,
+                "wait_minutes": 1
+            }
+        },
+        {
+            "type": "network_latency",
+            "count": 2,
+            "order": 5,
+            "enabled": true,
+            "params": {
+                "minutes_before": 3,
+                "minutes_after": 5,
+                "wait_minutes": 1
+            }
+        }
+    ],
+    "global_settings": {
+        "output_dir": "/tmp/fault_test_results",
+        "random_order": true,
+        "interval_between_faults": 120,
+        "interval_between_runs": 300
+    }
+}

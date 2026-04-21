@@ -1,0 +1,34 @@
+# 数据目录 - 不需要备份
+data/data_scripts/collect_data/data/
+
+# 大文件 (>100MB)
+data/data_scripts/data_bloat/data/
+data/data_scripts/data_skew/data/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# 日志文件
+*.log
+nohup.out
+
+# 环境
+.env
+.venv
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
