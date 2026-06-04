@@ -1,0 +1,21 @@
+{
+    "faults": [
+        {
+            "type": "data_bloat",
+            "count": 10,
+            "order": 1,
+            "enabled": true,
+            "params": {
+                "minutes_before": 3,
+                "minutes_after": 5,
+                "wait_minutes": 1
+            }
+        }
+    ],
+    "global_settings": {
+        "output_dir": "/tmp/fault_test_results",
+        "random_order": false,
+        "interval_between_faults": 120,
+        "interval_between_runs": 300
+    }
+}

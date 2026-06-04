@@ -1,22 +1,39 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.bak
-*.orig
-
-# Data (too large for GitHub)
+# Data directories
+data/data_scripts/collect_data/data/
 collect_data/
 batch_data/
 logs/
 
-# OS
-.DS_Store
-Thumbs.db
+# Large files
+data/data_scripts/data_bloat/data/
+data/data_scripts/data_skew/data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.bak
+*.orig
+
+# Logs
+*.log
+nohup.out
+
+# Environment
+.env
+.venv
+env/
+venv/
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Secrets
-.env
+# OS
+.DS_Store
+Thumbs.db

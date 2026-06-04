@@ -1,0 +1,36 @@
+# 日志文件
+logs/
+*.log
+
+# 数据文件
+data/
+*.txt
+*.csv
+
+# Python缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 临时文件
+*.tmp
+*.swp
+*.swo
+*~
+
+# 测试结果
+test_metrics/
+test_metrics_cat/
+test_metrics_fix/
+/tmp/
+
+# IDE配置
+.vscode/
+.idea/
+*.iml
+
+# 系统文件
+.DS_Store
+Thumbs.db
