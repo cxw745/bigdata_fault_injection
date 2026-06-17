@@ -251,7 +251,7 @@ class UnifiedScheduler:
             },
             "hadoop_cluster": {
                 "master_node": "cxw-1 (10.10.0.82)",
-                "slave_nodes": ["cxw-2 (10.10.0.83)", "cxw-3 (10.10.0.84)", "cxw-4 (10.10.0.85)"],
+                "slave_nodes": ["cxw-2 (10.10.0.124)", "cxw-3 (10.10.2.188)", "cxw-4 (10.10.0.92)"],
                 "total_nodes": 4,
                 "hadoop_version": "3.3.6",
                 "hdfs_replication": 3,

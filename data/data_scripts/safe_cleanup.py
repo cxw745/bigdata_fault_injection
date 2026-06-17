@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-安全清理脚本 - 只删除指定application_id的样本目录
+安全清理脚本 - 只删除指定folder_name对应的样本目录
 绝不删除整个batch目录！绝不删除fault_labels.csv！
 """
 import os, csv, shutil, sys
@@ -31,7 +31,7 @@ def safe_remove_incomplete_samples(data_dir, dry_run=True):
 
         valid_rows = []
         for row in rows:
-            app_id = row.get('application_id', '')
+            app_id = row.get('folder_name', '')
             ft = row.get('fault_type', '')
             if not app_id or ft == 'fault_type':
                 continue
