@@ -12,11 +12,14 @@
 import subprocess
 import time
 import sys
+sys.stdout.reconfigure(line_buffering=True)
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "collect_data"))
 from fault_marker import mark_fault_start, mark_fault_end, mark_fault_injection
 
+
+os.environ["PATH"] = "/opt/hadoop/bin:" + os.environ.get("PATH", "")
 SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def run(cmd):
@@ -72,6 +75,7 @@ cmd = f"""
     -D mapreduce.job.reduces=8 \
     -D mapreduce.map.maxattempts=4 \
     -D mapreduce.reduce.maxattempts=4 \
+    -inputformat org.apache.hadoop.mapred.SequenceFileInputFormat \
     -input {input_path} \
     -output {output_path} \
     -mapper "python3 mapper_task_fail.py" \
@@ -87,7 +91,12 @@ for line in iter(process.stdout.readline, ''):
     stdout_lines.append(line)
     print(line, end='')
 
-process.wait()
+try:
+    process.wait(timeout=300)
+except subprocess.TimeoutExpired:
+    print("\n⚠ MapReduce任务超时(300s)，强制终止")
+    process.kill()
+    process.wait(timeout=5)
 
 if process.returncode == 0:
     print("\n✔ 任务完成")

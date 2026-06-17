@@ -37,6 +37,10 @@ HIBENCH_DATA_SIZES = {
         name="small",
         description="小数据集 - 约320MB，用于开发测试"
     ),
+    "medium": DataSizeConfig(
+        name="medium",
+        description="中等数据集 - 约1GB，用于正式实验"
+    ),
     "large": DataSizeConfig(
         name="large",
         description="大数据集 - 约32GB，用于性能测试"

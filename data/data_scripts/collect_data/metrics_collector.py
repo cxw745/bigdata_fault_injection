@@ -90,7 +90,7 @@ class MetricsCollector:
                     instance = metric_labels.get("instance", "")
                     hostname = INSTANCE_TO_HOSTNAME.get(instance, instance.split(":")[0] if ":" in instance else "unknown")
 
-                    if hostname == "unknown" or not hostname.startswith("cpf-"):
+                    if hostname == "unknown" or not hostname.startswith("cxw-"):
                         continue
 
                     service = SERVICE_PORTS.get(instance.split(":")[1] if ":" in instance else "", "unknown")
@@ -218,7 +218,7 @@ class MetricsCollector:
                         instance = metric_labels.get("instance", "")
                         hostname = INSTANCE_TO_HOSTNAME.get(instance, instance.split(":")[0] if ":" in instance else "unknown")
 
-                        if hostname == "unknown" or not hostname.startswith("cpf-"):
+                        if hostname == "unknown" or not hostname.startswith("cxw-"):
                             continue
 
                         values = res.get("values", [])

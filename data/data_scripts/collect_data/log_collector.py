@@ -69,6 +69,8 @@ class LogCollector:
 
         for filename in sorted(filenames):
             component = self._extract_component_from_filename(filename)
+            if component is None:
+                continue
             node = self._extract_node_from_filename(filename)
             task_id = self._extract_task_id_from_filename(filename)
 
@@ -172,7 +174,7 @@ class LogCollector:
                 if not records:
                     continue
                 # 从task_key提取application_id (格式: component_task_id)
-                app_id = task_key.split('_')[-1] if '_' in task_key else task_key
+                app_id = '_'.join(task_key.split('_')[1:]) if '_' in task_key else task_key
                 app_logs_by_node[app_id][node].extend(records)
         
         # 保存合并后的日志，文件名统一为 mapreduce_{application_id}.csv
@@ -203,10 +205,9 @@ class LogCollector:
 
     def collect_mapreduce_logs(self, application_id: str, output_dir: str) -> tuple[List[str], int]:
         """
-        从HDFS NFS收集MapReduce任务日志
-        
-        每个application_id对应一个日志目录，目录下有多个节点的日志文件（如cpf-2_40553）
-        每个节点只生成一个CSV文件，文件名统一为 mapreduce_{application_id}.csv
+        从HDFS收集MapReduce任务日志
+
+        使用hdfs dfs命令代替NFS挂载，更可靠
 
         Args:
             application_id: Application ID
@@ -221,62 +222,62 @@ class LogCollector:
 
         self.logger.info(f"收集MapReduce任务日志 (Application: {application_id})...")
 
-        mr_logs_base = os.path.join(self.hdfs_nfs_mount, "tmp/logs")
-        if not os.path.exists(mr_logs_base):
-            self.logger.error(f"MapReduce日志目录不存在: {mr_logs_base}")
+        app_id_parts = application_id.split('_')
+        if len(app_id_parts) < 3:
+            self.logger.info(f"Application ID格式不对: {application_id}")
             return [], 0
 
-        # 直接从application_id提取ID号，构造路径
-        # application_id格式: application_1774003847013_0012
-        app_id_parts = application_id.split('_')
-        if len(app_id_parts) >= 3:
-            app_id_num = app_id_parts[-1]  # 获取最后一部分，如 "0012"
-            # 尝试直接构造路径，避免遍历整个目录树
-            potential_paths = [
-                os.path.join(mr_logs_base, "ubuntu", "bucket-cxw745-logs-tfile", app_id_num, application_id),
-                os.path.join(mr_logs_base, application_id),
-            ]
-            
-            app_log_dir = None
-            for path in potential_paths:
-                if os.path.exists(path):
-                    app_log_dir = path
-                    self.logger.info(f"直接找到日志目录: {app_log_dir}")
-                    break
-            
-            # 如果直接构造路径没找到，再使用遍历
-            if not app_log_dir:
-                self.logger.info(f"直接路径未找到，开始遍历查找: {application_id}")
-                for root, dirs, files in os.walk(mr_logs_base):
-                    if application_id in dirs:
-                        app_log_dir = os.path.join(root, application_id)
-                        break
-        else:
-            # 如果application_id格式不对，使用遍历
-            for root, dirs, files in os.walk(mr_logs_base):
-                if application_id in dirs:
-                    app_log_dir = os.path.join(root, application_id)
-                    break
+        app_id_num = app_id_parts[-1]
 
-        if not app_log_dir or not os.path.exists(app_log_dir):
+        potential_hdfs_paths = [
+            f"/tmp/logs/ubuntu/bucket-cxw745-logs-tfile/{app_id_num}/{application_id}",
+            f"/tmp/logs/{application_id}",
+        ]
+
+        app_log_hdfs_path = None
+        for hdfs_path in potential_hdfs_paths:
+            try:
+                result = subprocess.run(
+                    ["/opt/hadoop/bin/hdfs", "dfs", "-test", "-d", hdfs_path],
+                    capture_output=True, text=True, timeout=30
+                )
+                if result.returncode == 0:
+                    app_log_hdfs_path = hdfs_path
+                    self.logger.info(f"找到HDFS日志目录: {app_log_hdfs_path}")
+                    break
+            except Exception as e:
+                self.logger.warning(f"检查HDFS路径失败 {hdfs_path}: {e}")
+
+        if not app_log_hdfs_path:
             self.logger.info(f"未找到Application日志目录: {application_id}")
             return [], 0
 
-        self.logger.info(f"找到日志目录: {app_log_dir}")
+        try:
+            ls_result = subprocess.run(
+                ["/opt/hadoop/bin/hdfs", "dfs", "-ls", app_log_hdfs_path],
+                capture_output=True, text=True, timeout=60
+            )
+            if ls_result.returncode != 0:
+                self.logger.error(f"列出HDFS目录失败: {app_log_hdfs_path}")
+                return [], 0
+        except Exception as e:
+            self.logger.error(f"列出HDFS目录异常: {e}")
+            return [], 0
 
         log_files = []
         total_logs = 0
-
         node_logs = {}
 
-        for log_file in os.listdir(app_log_dir):
-            log_path = os.path.join(app_log_dir, log_file)
-            if not os.path.isfile(log_path):
+        for line in ls_result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 8:
                 continue
 
-            match = re.match(r'(cpf-\d+)_(\d+)', log_file)
+            hdfs_file_path = parts[-1]
+            log_file = hdfs_file_path.split('/')[-1]
+
+            match = re.match(r'(cxw-\d+)_(\d+)', log_file)
             if not match:
-                self.logger.info(f"跳过不匹配的文件: {log_file}")
                 continue
 
             node = match.group(1)
@@ -289,7 +290,7 @@ class LogCollector:
 
             try:
                 result = subprocess.run(
-                    ["hadoop", "fs", "-text", f"/tmp/logs/{os.path.relpath(log_path, mr_logs_base)}"],
+                    ["/opt/hadoop/bin/hadoop", "fs", "-text", hdfs_file_path],
                     capture_output=True,
                     text=True,
                     timeout=60,
@@ -300,11 +301,11 @@ class LogCollector:
                     self.logger.error(f"解析TFile失败: {log_file}")
                     continue
 
-                content = result.stdout
-                if not content:
+                content_text = result.stdout
+                if not content_text:
                     continue
 
-                records = self._parse_tfile_content(content, node, application_id)
+                records = self._parse_tfile_content(content_text, node, application_id)
                 node_logs[node].extend(records)
 
             except subprocess.TimeoutExpired:
@@ -327,7 +328,7 @@ class LogCollector:
                 writer.writeheader()
                 writer.writerows(records)
 
-            self.logger.info(f"  ✓ {node}/mapreduce_{application_id}.csv: {len(records)} 条")
+            self.logger.info(f"  \u2713 {node}/mapreduce_{application_id}.csv: {len(records)} 条")
             log_files.append(csv_file)
             total_logs += len(records)
 
@@ -447,6 +448,10 @@ class LogCollector:
             return "nodemanager"
         elif "resourcemanager" in filename:
             return "resourcemanager"
+        elif "historyserver" in filename:
+            return "historyserver"
+        elif "nfs3" in filename or "portmap" in filename:
+            return None
         else:
             return "mapreduce"
 
@@ -456,19 +461,25 @@ class LogCollector:
             return "unknown"
 
         patterns = {
-            "datanode": r"datanode-(cpf-\d+)",
-            "namenode": r"namenode-(cpf-\d+)",
-            "nodemanager": r"nodemanager-(cpf-\d+)",
-            "resourcemanager": r"resourcemanager-(cpf-\d+)",
-            "secondarynamenode": r"secondarynamenode-(cpf-\d+)",
-            "mapreduce_task": r"cpf-(\d+)_(\d+)"
+            "datanode": r"datanode-(cxw-\d+)",
+            "namenode": r"namenode-(cxw-\d+)",
+            "nodemanager": r"nodemanager-(cxw-\d+)",
+            "resourcemanager": r"resourcemanager-(cxw-\d+)",
+            "secondarynamenode": r"secondarynamenode-(cxw-\d+)",
+            "historyserver": r"historyserver-(cxw-\d+)",
+            "nfs3": r"nfs3-(cxw-\d+)",
+            "portmap": r"portmap-(cxw-\d+)",
+            "mapreduce_task": r"cxw-(\d+)_(\d+)",
+            "generic": r"(cxw-\d+)"
         }
 
         for pattern_name, pattern in patterns.items():
             match = re.search(pattern, filename)
             if match:
                 if pattern_name == "mapreduce_task":
-                    return f"cpf-{match.group(1)}"
+                    return f"cxw-{match.group(1)}"
+                elif pattern_name == "generic":
+                    return match.group(1)
                 else:
                     return match.group(1)
 
@@ -495,3 +506,81 @@ if __name__ == "__main__":
     )
 
     print("LogCollector initialized")
+
+    def collect_rm_nm_logs_from_disk(self, start_time, end_time, output_dir):
+        import subprocess as _sp
+        from datetime import datetime as _dt
+        import csv, os, re as _re
+
+        if isinstance(start_time, str):
+            st = _dt.fromisoformat(start_time)
+        else:
+            st = start_time
+        if isinstance(end_time, str):
+            et = _dt.fromisoformat(end_time)
+        else:
+            et = end_time
+        st_ts = st.timestamp()
+        et_ts = et.timestamp()
+
+        def _parse_ts(line, year=2026):
+            m = _re.match(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', line)
+            if m:
+                try:
+                    return _dt.strptime(m.group(1), '%Y-%m-%d %H:%M:%S').timestamp()
+                except:
+                    pass
+            m2 = _re.match(r'(\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', line)
+            if m2:
+                try:
+                    return _dt.strptime(str(year) + '-' + m2.group(1), '%Y-%m-%d-%H:%M:%S').timestamp()
+                except:
+                    pass
+            return None
+
+        def _collect(host, log_path, component, node_name):
+            lines = []
+            try:
+                if host == 'localhost':
+                    with open(log_path, 'r', errors='replace') as f:
+                        lines = f.readlines()
+                else:
+                    r = _sp.run(['ssh', host, 'cat', log_path], capture_output=True, text=True, timeout=30)
+                    if r.returncode == 0:
+                        lines = r.stdout.split('\n')
+            except Exception:
+                return [], 0
+            records = []
+            for line in lines:
+                if not line.strip():
+                    continue
+                ts = _parse_ts(line)
+                if ts and st_ts <= ts <= et_ts:
+                    records.append({'timestamp': _dt.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S'),
+                                    'component': component, 'node': node_name,
+                                    'level': 'unknown', 'message': line.strip()})
+            if not records:
+                return [], 0
+            node_dir = os.path.join(output_dir, node_name)
+            os.makedirs(node_dir, exist_ok=True)
+            fname = '%s_%s.csv' % (component, _dt.now().strftime('%Y%m%d_%H%M%S'))
+            csv_path = os.path.join(node_dir, fname)
+            with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+                w = csv.DictWriter(f, fieldnames=['timestamp','component','node','level','message'])
+                w.writeheader()
+                w.writerows(records)
+            return [csv_path], len(records)
+
+        all_files = []; total = 0
+        for host, lpath, comp, node in [
+            ('localhost', '/opt/hadoop/logs/hadoop-ubuntu-resourcemanager-cxw-1.log', 'resourcemanager', 'cxw-1'),
+            ('localhost', '/opt/hadoop/logs/hadoop-ubuntu-historyserver-cxw-1.log', 'historyserver', 'cxw-1'),
+            ('cxw-2', '/opt/hadoop/logs/hadoop-ubuntu-nodemanager-cxw-2.log', 'nodemanager', 'cxw-2'),
+            ('cxw-3', '/opt/hadoop/logs/hadoop-ubuntu-nodemanager-cxw-3.log', 'nodemanager', 'cxw-3'),
+            ('cxw-4', '/opt/hadoop/logs/hadoop-ubuntu-nodemanager-cxw-4.log', 'nodemanager', 'cxw-4'),
+        ]:
+            f, c = _collect(host, lpath, comp, node)
+            all_files.extend(f); total += c
+        if total > 0:
+            self.logger.info('Disk RM/NM: %d lines in %d files' % (total, len(all_files)))
+        return all_files, total

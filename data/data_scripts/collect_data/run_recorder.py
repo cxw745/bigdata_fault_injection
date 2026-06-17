@@ -150,7 +150,7 @@ if __name__ == "__main__":
         "logs_collected": 1000,
         "metrics_collected": 500,
         "error_message": "",
-        "affected_nodes": "cpf-2,cpf-3",
+        "affected_nodes": "cxw-2,cxw-3",
         "injection_method": "Mapper代码"
     })
     

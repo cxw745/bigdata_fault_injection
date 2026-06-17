@@ -6,8 +6,11 @@
 """
 import subprocess
 import sys
+sys.stdout.reconfigure(line_buffering=True)
 import os
 
+
+os.environ["PATH"] = "/opt/hadoop/bin:" + os.environ.get("PATH", "")
 SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def run(cmd):
@@ -38,6 +41,7 @@ cmd = f"""
     -D mapreduce.job.name="wordcount_benchmark" \
     -D mapreduce.job.maps=24 \
     -D mapreduce.job.reduces=8 \
+    -inputformat org.apache.hadoop.mapred.SequenceFileInputFormat \
     -input {input_path} \
     -output {output_path} \
     -mapper "python3 mapper.py" \
@@ -51,7 +55,12 @@ process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subpr
 for line in iter(process.stdout.readline, ''):
     print(line, end='')
 
-process.wait()
+try:
+    process.wait(timeout=300)
+except subprocess.TimeoutExpired:
+    print("\n⚠ MapReduce任务超时(300s)，强制终止")
+    process.kill()
+    process.wait(timeout=5)
 
 if process.returncode == 0:
     print("\n✔ 任务完成")
