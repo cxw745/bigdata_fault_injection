@@ -26,60 +26,64 @@ HADOOP_HOME = os.environ.get("HADOOP_HOME", "/opt/hadoop")
 
 # 集群拓扑配置
 TOPOLOGY = {
-    "master": "cpf-1",
-    "slaves": ["cpf-2", "cpf-3", "cpf-4"],
-    "all_nodes": ["cpf-1", "cpf-2", "cpf-3", "cpf-4"],
+    "master": "cxw-1",
+    "slaves": ["cxw-2", "cxw-3", "cxw-4"],
+    "all_nodes": ["cxw-1", "cxw-2", "cxw-3", "cxw-4"],
     "roles": {
-        "cpf-1": ["namenode", "resourcemanager", "historyserver"],
-        "cpf-2": ["datanode", "nodemanager"],
-        "cpf-3": ["datanode", "nodemanager"],
-        "cpf-4": ["datanode", "nodemanager"]
+        "cxw-1": ["namenode", "resourcemanager", "historyserver"],
+        "cxw-2": ["datanode", "nodemanager"],
+        "cxw-3": ["datanode", "nodemanager"],
+        "cxw-4": ["datanode", "nodemanager"]
     },
     "services": {
-        "namenode": "cpf-1:9402",
-        "datanode": ["cpf-2:9401", "cpf-3:9401", "cpf-4:9401"],
-        "resourcemanager": "cpf-1:9403",
-        "nodemanager": ["cpf-2:9404", "cpf-3:9404", "cpf-4:9404"],
-        "historyserver": "cpf-1"
+        "namenode": "cxw-1:9404",
+        "datanode": ["cxw-2:9405", "cxw-3:9405", "cxw-4:9405"],
+        "resourcemanager": "cxw-1:9406",
+        "nodemanager": ["cxw-2:9407", "cxw-3:9407", "cxw-4:9407"],
+        "historyserver": "cxw-1"
     }
 }
 
 # 实例映射配置
 INSTANCE_TO_HOSTNAME = {
-    "cpf-1:9100": "cpf-1",
-    "cpf-2:9100": "cpf-2",
-    "cpf-3:9100": "cpf-3",
-    "cpf-4:9100": "cpf-4",
-    "cpf-1:9402": "cpf-1",
-    "cpf-2:9401": "cpf-2",
-    "cpf-3:9401": "cpf-3",
-    "cpf-4:9401": "cpf-4",
-    "cpf-2:9404": "cpf-2",
-    "cpf-3:9404": "cpf-3",
-    "cpf-4:9404": "cpf-4",
-    "cpf-1:9403": "cpf-1",
+    "cxw-1:9100": "cxw-1",
+    "cxw-2:9100": "cxw-2",
+    "cxw-3:9100": "cxw-3",
+    "cxw-4:9100": "cxw-4",
+    "cxw-1:9404": "cxw-1",
+    "cxw-2:9405": "cxw-2",
+    "cxw-3:9405": "cxw-3",
+    "cxw-4:9405": "cxw-4",
+    "cxw-1:9406": "cxw-1",
+    "cxw-2:9407": "cxw-2",
+    "cxw-3:9407": "cxw-3",
+    "cxw-4:9407": "cxw-4",
+    "cxw-1:9408": "cxw-1",
+    "cxw-1:9409": "cxw-1",
 }
 
 SERVICE_PORTS = {
     "9100": "node_exporter",
-    "9401": "datanode",
-    "9402": "namenode",
-    "9403": "resourcemanager",
-    "9404": "nodemanager"
+    "9404": "namenode",
+    "9405": "datanode",
+    "9406": "resourcemanager",
+    "9407": "nodemanager",
+    "9408": "secondarynamenode",
+    "9409": "jobhistoryserver"
 }
 
 IP_TO_HOSTNAME = {
-    "10.10.3.183": "cpf-1",
-    "10.10.1.96": "cpf-2",
-    "10.10.3.222": "cpf-3",
-    "10.10.0.176": "cpf-4"
+    "10.10.0.82": "cxw-1",
+    "10.10.0.124": "cxw-2",
+    "10.10.2.188": "cxw-3",
+    "10.10.0.92": "cxw-4"
 }
 
 # 故障类型配置
 FAULT_CONFIG = {
     "wordcount": {
         "description": "通用WordCount基准任务",
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "affected_services": ["nodemanager"],
         "injection_method": "标准WordCount实现，作为基准对比",
         "nodes_known": True,
@@ -90,7 +94,7 @@ FAULT_CONFIG = {
     },
     "data_skew": {
         "description": "数据倾斜故障 - 分区倾斜(Key Skew)",
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "affected_services": ["nodemanager"],
         "injection_method": "在Mapper代码中80%概率输出相同key，导致单个Reducer处理大部分数据",
         "nodes_known": True,
@@ -100,7 +104,7 @@ FAULT_CONFIG = {
     },
     "data_bloat": {
         "description": "数据膨胀故障 - Mapper输出膨胀",
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "affected_services": ["datanode", "nodemanager"],
         "injection_method": "在Mapper代码中生成多倍中间数据",
         "nodes_known": True,
@@ -110,7 +114,7 @@ FAULT_CONFIG = {
     },
     "task_fail": {
         "description": "任务失败故障 - Mapper代码随机异常",
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "affected_services": ["nodemanager"],
         "injection_method": "在Mapper代码中随机抛出RuntimeException(20%概率)",
         "nodes_known": True,
@@ -120,7 +124,7 @@ FAULT_CONFIG = {
     },
     "long_tail": {
         "description": "长尾任务故障 - Mapper代码指定休眠",
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "affected_services": ["nodemanager"],
         "injection_method": "在Mapper代码中指定任务sleep 60秒",
         "nodes_known": True,
@@ -130,7 +134,7 @@ FAULT_CONFIG = {
     },
     "wait_time": {
         "description": "等待时间异常 - ResourceManager进程挂起",
-        "affected_nodes": ["cpf-1"],
+        "affected_nodes": ["cxw-1"],
         "affected_services": ["resourcemanager"],
         "injection_method": "挂起ResourceManager进程(SIGSTOP) 120秒",
         "nodes_known": True,
@@ -140,7 +144,7 @@ FAULT_CONFIG = {
     },
     "runtime_delta": {
         "description": "运行时间异常 - MRAppMaster进程挂起",
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "affected_services": ["nodemanager"],
         "injection_method": "挂起MRAppMaster进程(SIGSTOP) 120秒",
         "nodes_known": True,
@@ -151,7 +155,7 @@ FAULT_CONFIG = {
     },
     "exit_time": {
         "description": "退出时间异常 - NodeManager进程挂起",
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "affected_services": ["nodemanager"],
         "injection_method": "挂起NodeManager进程(SIGSTOP) 120秒",
         "nodes_known": True,
@@ -168,6 +172,46 @@ FAULT_CONFIG = {
         "inject_stage": "pre-run",
         "script_type": "py",
         "category": "network"
+    },
+    "log_level_change": {
+        "description": "日志级别变更故障 - 将Hadoop组件日志级别从INFO改为DEBUG",
+        "affected_nodes": ["cxw-2"],
+        "affected_services": ["datanode", "namenode"],
+        "injection_method": "通过Hadoop logLevel Servlet将组件日志级别从INFO改为DEBUG，导致日志量暴增",
+        "nodes_known": True,
+        "inject_stage": "dir-run",
+        "script_type": "py",
+        "category": "log_anomaly"
+    },
+    "process_restart": {
+        "description": "进程重启故障 - Kill并重启DataNode进程",
+        "affected_nodes": ["cxw-2"],
+        "affected_services": ["datanode"],
+        "injection_method": "停止DataNode进程后延迟重启，模拟进程崩溃恢复",
+        "nodes_known": True,
+        "inject_stage": "dir-run",
+        "script_type": "py",
+        "category": "node_management"
+    },
+    "heartbeat_timeout": {
+        "description": "心跳超时故障 - 屏蔽DataNode心跳端口",
+        "affected_nodes": ["cxw-2"],
+        "affected_services": ["datanode"],
+        "injection_method": "使用iptables屏蔽DataNode心跳端口，导致节点被标记为DEAD",
+        "nodes_known": True,
+        "inject_stage": "dir-run",
+        "script_type": "py",
+        "category": "node_management"
+    },
+    "disk_error": {
+        "description": "磁盘IO错误故障 - 使用ChaosBlade注入磁盘IO异常",
+        "affected_nodes": ["cxw-2"],
+        "affected_services": ["datanode", "nodemanager"],
+        "injection_method": "使用ChaosBlade注入磁盘IO错误，模拟磁盘故障",
+        "nodes_known": True,
+        "inject_stage": "dir-run",
+        "script_type": "py",
+        "category": "hardware"
     }
 }
 
@@ -234,82 +278,82 @@ METRICS_CONFIG = {
     ],
     "hadoop": [
         # NameNode指标
-        "Hadoop_NameNode_CapacityTotal",
-        "Hadoop_NameNode_CapacityUsed",
-        "Hadoop_NameNode_CapacityRemaining",
-        "Hadoop_NameNode_Used",
-        "Hadoop_NameNode_Free",
-        "Hadoop_NameNode_BlocksTotal",
-        "Hadoop_NameNode_MissingBlocks",
-        "Hadoop_NameNode_CorruptBlocks",
-        "Hadoop_NameNode_UnderReplicatedBlocks",
-        "Hadoop_NameNode_PendingReplicationBlocks",
-        "Hadoop_NameNode_ScheduledReplicationBlocks",
-        "Hadoop_NameNode_PercentUsed",
-        "Hadoop_NameNode_TotalLoad",
-        "Hadoop_NameNode_NumLiveDataNodes",
-        "Hadoop_NameNode_NumDeadDataNodes",
-        "Hadoop_NameNode_NumDecomLiveDataNodes",
-        "Hadoop_NameNode_NumDecomDeadDataNodes",
-        "Hadoop_NameNode_VolumeFailuresTotal",
+        "hadoop_namenode_capacitytotal",
+        "hadoop_namenode_capacityused",
+        "hadoop_namenode_capacityremaining",
+        "hadoop_namenode_used",
+        "hadoop_namenode_free",
+        "hadoop_namenode_blockstotal",
+        "hadoop_namenode_missingblocks",
+        "hadoop_namenode_corruptblocks",
+        "hadoop_namenode_underreplicatedblocks",
+        "hadoop_namenode_pendingreplicationblocks",
+        "hadoop_namenode_scheduledreplicationblocks",
+        "hadoop_namenode_percentused",
+        "hadoop_namenode_totalload",
+        "hadoop_namenode_numlivedatanodes",
+        "hadoop_namenode_numdeaddatanodes",
+        "hadoop_namenode_numdecomlivedatanodes",
+        "hadoop_namenode_numdecomdeaddatanodes",
+        "hadoop_namenode_volumefailurestotal",
         # DataNode指标
-        "Hadoop_DataNode_Capacity",
-        "Hadoop_DataNode_CapacityUsed",
-        "Hadoop_DataNode_CapacityRemaining",
-        "Hadoop_DataNode_BytesWritten",
-        "Hadoop_DataNode_BytesRead",
-        "Hadoop_DataNode_BlocksCached",
-        "Hadoop_DataNode_BlocksGetLocalPathInfo",
-        "Hadoop_DataNode_FsDatasetState",
-        "Hadoop_DataNode_NumFailedVolumes",
-        "Hadoop_DataNode_LastVolumeFailureDate",
-        "Hadoop_DataNode_EstimatedCapacityLostTotal",
+        "hadoop_datanode_capacity",
+        "hadoop_datanode_capacityused",
+        "hadoop_datanode_capacityremaining",
+        "hadoop_datanode_byteswritten",
+        "hadoop_datanode_bytesread",
+        "hadoop_datanode_blockscached",
+        "hadoop_datanode_blocksgetlocalpathinfo",
+        "hadoop_datanode_fsdatasetstate",
+        "hadoop_datanode_numfailedvolumes",
+        "hadoop_datanode_lastvolumefailuredate",
+        "hadoop_datanode_estimatedcapacitylosttotal",
         # ResourceManager指标
-        "Hadoop_ResourceManager_NumActiveNMs",
-        "Hadoop_ResourceManager_NumLostNMs",
-        "Hadoop_ResourceManager_NumUnhealthyNMs",
-        "Hadoop_ResourceManager_NumDecommissionedNMs",
-        "Hadoop_ResourceManager_NumRebootedNMs",
-        "Hadoop_ResourceManager_ClusterMetricsNumActiveApps",
-        "Hadoop_ResourceManager_ClusterMetricsNumPendingApps",
-        "Hadoop_ResourceManager_ClusterMetricsNumCompletedApps",
-        "Hadoop_ResourceManager_ClusterMetricsNumFailedApps",
-        "Hadoop_ResourceManager_ClusterMetricsNumKilledApps",
-        "Hadoop_ResourceManager_AvailableVCores",
-        "Hadoop_ResourceManager_AllocatedVCores",
-        "Hadoop_ResourceManager_AvailableMB",
-        "Hadoop_ResourceManager_AllocatedMB",
-        "Hadoop_ResourceManager_PendingMB",
-        "Hadoop_ResourceManager_PendingVCores",
-        "Hadoop_ResourceManager_ReservedMB",
-        "Hadoop_ResourceManager_ReservedVCores",
+        "hadoop_resourcemanager_numactivenms",
+        "hadoop_resourcemanager_numlostnms",
+        "hadoop_resourcemanager_numunhealthynms",
+        "hadoop_resourcemanager_numdecommissionednms",
+        "hadoop_resourcemanager_numrebootednms",
+        "hadoop_resourcemanager_clustermetricsnumactiveapps",
+        "hadoop_resourcemanager_clustermetricsnumpendingapps",
+        "hadoop_resourcemanager_clustermetricsnumcompletedapps",
+        "hadoop_resourcemanager_clustermetricsnumfailedapps",
+        "hadoop_resourcemanager_clustermetricsnumkilledapps",
+        "hadoop_resourcemanager_availablevcores",
+        "hadoop_resourcemanager_allocatedvcores",
+        "hadoop_resourcemanager_availablemb",
+        "hadoop_resourcemanager_allocatedmb",
+        "hadoop_resourcemanager_pendingmb",
+        "hadoop_resourcemanager_pendingvcores",
+        "hadoop_resourcemanager_reservedmb",
+        "hadoop_resourcemanager_reservedvcores",
         # NodeManager指标
-        "Hadoop_NodeManager_ContainerLauncherNumOps",
-        "Hadoop_NodeManager_ContainerLauncherAvgTime",
-        "Hadoop_NodeManager_ContainersLaunched",
-        "Hadoop_NodeManager_ContainersCompleted",
-        "Hadoop_NodeManager_ContainersFailed",
-        "Hadoop_NodeManager_ContainersKilled",
-        "Hadoop_NodeManager_ContainersRunning",
-        "Hadoop_NodeManager_ContainersIniting",
-        "Hadoop_NodeManager_AllocatedContainers",
-        "Hadoop_NodeManager_AvailableContainers",
+        "hadoop_nodemanager_containerlaunchernumops",
+        "hadoop_nodemanager_containerlauncheravgtime",
+        "hadoop_nodemanager_containerslaunched",
+        "hadoop_nodemanager_containerscompleted",
+        "hadoop_nodemanager_containersfailed",
+        "hadoop_nodemanager_containerskilled",
+        "hadoop_nodemanager_containersrunning",
+        "hadoop_nodemanager_containersiniting",
+        "hadoop_nodemanager_allocatedcontainers",
+        "hadoop_nodemanager_availablecontainers",
         # MapReduce Job指标
-        "Hadoop_MapReduce_job_mapTaskCount",
-        "Hadoop_MapReduce_job_reduceTaskCount",
-        "Hadoop_MapReduce_job_failedMapTaskCount",
-        "Hadoop_MapReduce_job_failedReduceTaskCount",
-        "Hadoop_MapReduce_job_killedMapTaskCount",
-        "Hadoop_MapReduce_job_killedReduceTaskCount",
-        "Hadoop_MapReduce_job_completedMapTaskCount",
-        "Hadoop_MapReduce_job_completedReduceTaskCount",
-        "Hadoop_MapReduce_job_mapInputRecords",
-        "Hadoop_MapReduce_job_mapOutputRecords",
-        "Hadoop_MapReduce_job_reduceInputRecords",
-        "Hadoop_MapReduce_job_reduceOutputRecords",
-        "Hadoop_MapReduce_job_mapInputBytes",
-        "Hadoop_MapReduce_job_mapOutputBytes",
-        "Hadoop_MapReduce_job_reduceShuffleBytes"
+        "hadoop_mapreduce_job_maptaskcount",
+        "hadoop_mapreduce_job_reducetaskcount",
+        "hadoop_mapreduce_job_failedmaptaskcount",
+        "hadoop_mapreduce_job_failedreducetaskcount",
+        "hadoop_mapreduce_job_killedmaptaskcount",
+        "hadoop_mapreduce_job_killedreducetaskcount",
+        "hadoop_mapreduce_job_completedmaptaskcount",
+        "hadoop_mapreduce_job_completedreducetaskcount",
+        "hadoop_mapreduce_job_mapinputrecords",
+        "hadoop_mapreduce_job_mapoutputrecords",
+        "hadoop_mapreduce_job_reduceinputrecords",
+        "hadoop_mapreduce_job_reduceoutputrecords",
+        "hadoop_mapreduce_job_mapinputbytes",
+        "hadoop_mapreduce_job_mapoutputbytes",
+        "hadoop_mapreduce_job_reduceshufflebytes"
     ],
     "jvm": [
         "jvm_memory_bytes_used{area='heap'}",
@@ -354,9 +398,9 @@ CORE_METRICS = {
     # JVM堆内存使用率 - 反映GC压力和内存问题
     "jvm_heap_used_ratio": "jvm_memory_bytes_used{area='heap'} / jvm_memory_bytes_max{area='heap'}",
     # 容器运行数量 - 反映NM状态和任务分布
-    "container_running": "Hadoop_NodeManager_ContainersRunning",
+    "container_running": "hadoop_nodemanager_ContainersRunning",
     # 容器失败数量 - 反映任务执行异常
-    "container_failed": "Hadoop_NodeManager_ContainersFailed",
+    "container_failed": "hadoop_nodemanager_ContainersFailed",
     # CPU使用率 - 反映节点负载
     "cpu_usage": "rate(node_cpu_seconds_total[1m])",
     # 内存使用率 - 反映内存压力
@@ -447,3 +491,26 @@ def get_metrics_for_fault(fault_type):
         "network_latency": ["network", "hadoop"]
     }
     return mapping.get(fault_type, ["cpu", "memory", "disk", "network", "hadoop", "jvm"])
+
+# 新增故障类型配置
+FAULT_CONFIG["disk_full"] = {
+    "description": "磁盘空间耗尽故障 - 填充磁盘至90%导致写入失败",
+    "affected_nodes": ["cxw-2"],
+    "affected_services": ["datanode", "nodemanager"],
+    "injection_method": "使用ChaosBlade disk fill填充磁盘至90%，模拟空间耗尽",
+    "nodes_known": True,
+    "inject_stage": "dir-run",
+    "script_type": "py",
+    "category": "hardware"
+}
+
+FAULT_CONFIG["network_loss"] = {
+    "description": "网络丢包故障 - 30%丢包率导致TCP重传",
+    "affected_nodes": ["cxw-2"],
+    "affected_services": ["datanode", "nodemanager"],
+    "injection_method": "使用ChaosBlade network loss注入30%丢包率",
+    "nodes_known": True,
+    "inject_stage": "dir-run",
+    "script_type": "py",
+    "category": "network"
+}

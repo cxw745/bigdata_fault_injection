@@ -32,9 +32,9 @@ TOPOLOGY_FEATURES = {
         "created_at": datetime.now().isoformat()
     },
     "nodes": {
-        "cpf-1": {
-            "hostname": "cpf-1",
-            "ip": "10.10.3.183",
+        "cxw-1": {
+            "hostname": "cxw-1",
+            "ip": "10.10.0.82",
             "role": "master",
             "services": ["namenode", "resourcemanager", "historyserver"],
             "resources": {
@@ -48,7 +48,7 @@ TOPOLOGY_FEATURES = {
                 "prometheus": 9090,
                 "loki": 3100
             },
-            "connections": ["cpf-2", "cpf-3", "cpf-4"],
+            "connections": ["cxw-2", "cxw-3", "cxw-4"],
             "feature_vector_index": {
                 "node_type_master": 1,
                 "node_type_slave": 0,
@@ -58,9 +58,9 @@ TOPOLOGY_FEATURES = {
                 "has_nodemanager": 0
             }
         },
-        "cpf-2": {
-            "hostname": "cpf-2",
-            "ip": "10.10.1.96",
+        "cxw-2": {
+            "hostname": "cxw-2",
+            "ip": "10.10.0.124",
             "role": "slave",
             "services": ["datanode", "nodemanager"],
             "resources": {
@@ -73,7 +73,7 @@ TOPOLOGY_FEATURES = {
                 "nodemanager": 9404,
                 "node_exporter": 9100
             },
-            "connections": ["cpf-1"],
+            "connections": ["cxw-1"],
             "feature_vector_index": {
                 "node_type_master": 0,
                 "node_type_slave": 1,
@@ -83,9 +83,9 @@ TOPOLOGY_FEATURES = {
                 "has_nodemanager": 1
             }
         },
-        "cpf-3": {
-            "hostname": "cpf-3",
-            "ip": "10.10.3.222",
+        "cxw-3": {
+            "hostname": "cxw-3",
+            "ip": "10.10.2.188",
             "role": "slave",
             "services": ["datanode", "nodemanager"],
             "resources": {
@@ -98,7 +98,7 @@ TOPOLOGY_FEATURES = {
                 "nodemanager": 9404,
                 "node_exporter": 9100
             },
-            "connections": ["cpf-1"],
+            "connections": ["cxw-1"],
             "feature_vector_index": {
                 "node_type_master": 0,
                 "node_type_slave": 1,
@@ -108,9 +108,9 @@ TOPOLOGY_FEATURES = {
                 "has_nodemanager": 1
             }
         },
-        "cpf-4": {
-            "hostname": "cpf-4",
-            "ip": "10.10.0.176",
+        "cxw-4": {
+            "hostname": "cxw-4",
+            "ip": "10.10.0.92",
             "role": "slave",
             "services": ["datanode", "nodemanager"],
             "resources": {
@@ -123,7 +123,7 @@ TOPOLOGY_FEATURES = {
                 "nodemanager": 9404,
                 "node_exporter": 9100
             },
-            "connections": ["cpf-1"],
+            "connections": ["cxw-1"],
             "feature_vector_index": {
                 "node_type_master": 0,
                 "node_type_slave": 1,
@@ -136,30 +136,30 @@ TOPOLOGY_FEATURES = {
     },
     "services": {
         "namenode": {
-            "nodes": ["cpf-1"],
+            "nodes": ["cxw-1"],
             "type": "master",
             "ha": False,
             "port": 9402
         },
         "resourcemanager": {
-            "nodes": ["cpf-1"],
+            "nodes": ["cxw-1"],
             "type": "master",
             "ha": False,
             "port": 9403
         },
         "historyserver": {
-            "nodes": ["cpf-1"],
+            "nodes": ["cxw-1"],
             "type": "master",
             "ha": False
         },
         "datanode": {
-            "nodes": ["cpf-2", "cpf-3", "cpf-4"],
+            "nodes": ["cxw-2", "cxw-3", "cxw-4"],
             "type": "slave",
             "ha": True,
             "port": 9401
         },
         "nodemanager": {
-            "nodes": ["cpf-2", "cpf-3", "cpf-4"],
+            "nodes": ["cxw-2", "cxw-3", "cxw-4"],
             "type": "slave",
             "ha": True,
             "port": 9404
@@ -168,14 +168,14 @@ TOPOLOGY_FEATURES = {
     "network": {
         "topology": "rack_aware",
         "racks": {
-            "rack_1": ["cpf-1", "cpf-3"],
-            "rack_2": ["cpf-2"],
-            "rack_3": ["cpf-4"]
+            "rack_1": ["cxw-1", "cxw-3"],
+            "rack_2": ["cxw-2"],
+            "rack_3": ["cxw-4"]
         },
         "subnets": {
-            "10.10.3.x": ["cpf-1", "cpf-3"],
-            "10.10.1.x": ["cpf-2"],
-            "10.10.0.x": ["cpf-4"]
+            "10.10.3.x": ["cxw-1", "cxw-3"],
+            "10.10.1.x": ["cxw-2"],
+            "10.10.0.x": ["cxw-4"]
         },
         "bandwidth_mbps": 1000
     },
@@ -246,7 +246,7 @@ FAULT_TO_SERVICE_MAPPING = {
     "wait_time": {
         "label": 1,
         "affected_services": ["resourcemanager"],
-        "affected_nodes": ["cpf-1"],
+        "affected_nodes": ["cxw-1"],
         "injection_method": "挂起ResourceManager进程(SIGSTOP)",
         "detection_metrics": [
             "app_launch_delay",
@@ -266,7 +266,7 @@ FAULT_TO_SERVICE_MAPPING = {
     "exit_time": {
         "label": 2,
         "affected_services": ["nodemanager"],
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "injection_method": "挂起NodeManager进程(SIGSTOP)",
         "detection_metrics": [
             "nm_heartbeat_timeout",
@@ -306,7 +306,7 @@ FAULT_TO_SERVICE_MAPPING = {
     "data_skew": {
         "label": 4,
         "affected_services": ["nodemanager"],
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "injection_method": "Mapper输出倾斜(80%数据输出相同key)",
         "detection_metrics": [
             "reduce_task_duration_max",
@@ -326,7 +326,7 @@ FAULT_TO_SERVICE_MAPPING = {
     "data_bloat": {
         "label": 5,
         "affected_services": ["nodemanager", "datanode"],
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "injection_method": "Mapper输出膨胀(每条记录输出多份)",
         "detection_metrics": [
             "map_output_bytes",
@@ -346,7 +346,7 @@ FAULT_TO_SERVICE_MAPPING = {
     "task_fail": {
         "label": 6,
         "affected_services": ["nodemanager"],
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "injection_method": "Mapper抛出异常(按task_id或ratio)",
         "detection_metrics": [
             "failed_map_tasks",
@@ -366,7 +366,7 @@ FAULT_TO_SERVICE_MAPPING = {
     "long_tail": {
         "label": 7,
         "affected_services": ["nodemanager"],
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "injection_method": "Mapper延迟注入(按task_id)",
         "detection_metrics": [
             "map_task_duration_p95",
@@ -386,7 +386,7 @@ FAULT_TO_SERVICE_MAPPING = {
     "network_latency": {
         "label": 8,
         "affected_services": ["all"],
-        "affected_nodes": ["cpf-2", "cpf-3", "cpf-4"],
+        "affected_nodes": ["cxw-2", "cxw-3", "cxw-4"],
         "injection_method": "tc命令注入网络延迟",
         "detection_metrics": [
             "shuffle_duration",
@@ -438,8 +438,8 @@ DEPENDENCY_GRAPH = {
 
 FAULT_PROPAGATION_PATHS = {
     "wait_time": {
-        "source": "cpf-1",
-        "propagation": ["cpf-1 -> all_nodes"],
+        "source": "cxw-1",
+        "propagation": ["cxw-1 -> all_nodes"],
         "impact_scope": "cluster_wide",
         "description": "RM故障影响全局调度"
     },
@@ -489,7 +489,7 @@ def get_node_feature_vector(node_name):
 
 def get_all_nodes_feature_matrix():
     """获取所有节点的特征矩阵（用于批量计算）"""
-    nodes = ["cpf-1", "cpf-2", "cpf-3", "cpf-4"]
+    nodes = ["cxw-1", "cxw-2", "cxw-3", "cxw-4"]
     feature_matrix = []
 
     for node in nodes:
@@ -535,7 +535,7 @@ def generate_ml_training_data_template():
     return {
         "feature_names": TOPOLOGY_FEATURES["feature_dimensions"],
         "feature_count": len(TOPOLOGY_FEATURES["feature_dimensions"]),
-        "node_names": ["cpf-1", "cpf-2", "cpf-3", "cpf-4"],
+        "node_names": ["cxw-1", "cxw-2", "cxw-3", "cxw-4"],
         "node_count": 4,
         "fault_types": list(FAULT_LABELS.keys()),
         "normal_label": 0,
@@ -608,14 +608,14 @@ if __name__ == "__main__":
         print(f"    范围: {path['impact_scope']}")
 
     print("\n【6. 节点特征向量】")
-    for node in ["cpf-1", "cpf-2", "cpf-3", "cpf-4"]:
+    for node in ["cxw-1", "cxw-2", "cxw-3", "cxw-4"]:
         fv = get_node_feature_vector(node)
         print(f"  {node}: {fv}")
 
     print("\n【7. 特征矩阵（4节点 x 16维度）】")
     matrix = get_all_nodes_feature_matrix()
     for i, row in enumerate(matrix):
-        print(f"  cpf-{i+1}: {row}")
+        print(f"  cxw-{i+1}: {row}")
 
     print("\n【8. ML训练数据模板】")
     ml_template = generate_ml_training_data_template()

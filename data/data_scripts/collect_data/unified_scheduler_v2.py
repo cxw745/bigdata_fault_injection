@@ -9,6 +9,7 @@
 - run_recorder: 运行记录
 """
 import os
+import json
 import sys
 import argparse
 import logging
@@ -32,6 +33,16 @@ from log_collector import LogCollector
 from metrics_collector import MetricsCollector
 from hibench_manager import HiBenchManager, HIBENCH_DATA_SIZES
 
+def _sample_interval(interval_min, interval_max, shape_k=1.5, scale_lambda=180):
+    import math, random
+    u = random.random()
+    while u == 0.0:
+        u = random.random()
+    raw = scale_lambda * (-math.log(u)) ** (1.0 / shape_k)
+    interval = max(interval_min, min(int(raw), interval_max))
+    return interval
+
+
 
 FAULT_LABELS = {
     "normal": 0,
@@ -43,18 +54,34 @@ FAULT_LABELS = {
     "data_bloat": 5,
     "task_fail": 6,
     "long_tail": 7,
-    "network_latency": 8
+    "network_latency": 8,
+    "log_level_change": 9,
+    "process_restart": 10,
+    "heartbeat_timeout": 11,
+    "disk_error": 12,
+    "disk_full": 13,
+    "network_loss": 14
+}
+
+WORKLOAD_TYPES = ["wordcount", "sort", "terasort"]
+
+WORKLOAD_INPUT_PATHS = {
+    "wordcount": "/HiBench/HiBench/Wordcount/Input",
+    "sort": "/HiBench/HiBench/Sort/Input",
+    "terasort": "/HiBench/HiBench/Terasort/Input"
 }
 
 
 class UnifiedScheduler:
     """统一调度器"""
 
-    def __init__(self, config: SchedulerConfig, output_dir: str = OUTPUT_BASE, data_size: str = "micro", max_batch_size: int = 50):
+    def __init__(self, config: SchedulerConfig, output_dir: str = OUTPUT_BASE, data_size: str = "small", max_batch_size: int = 50, workload: str = "random"):
         self.config = config
         self.output_dir = output_dir
         self.data_size = data_size
+        self.workload = workload
         self.max_batch_size = max_batch_size
+        self.skip_prepare = False
         self._shutdown_requested = False
 
         self._setup_logging()
@@ -97,6 +124,225 @@ class UnifiedScheduler:
         self.logger.info(f"收到终止信号 {signum}，正在优雅退出...")
         self._shutdown_requested = True
     
+    def _get_workload_type(self) -> str:
+        """获取当前任务使用的workload类型"""
+        if self.workload == "random":
+            import random
+            return random.choice(WORKLOAD_TYPES)
+        return self.workload
+
+
+
+
+    def _save_collection_statistics(self, batch_dir: str):
+        """保存采集统计摘要到批次目录"""
+        from collections import Counter
+
+        labels_csv = os.path.join(batch_dir, "fault_labels.csv")
+        if not os.path.exists(labels_csv):
+            return
+
+        fault_type_counts = Counter()
+        success_counts = {"success": 0, "failed": 0}
+        total_duration = 0
+        duration_by_type = {}
+
+        with open(labels_csv, "r", encoding="utf-8") as f:
+            import csv as csv_mod
+            reader = csv_mod.DictReader(f)
+            for row in reader:
+                ft = row.get("fault_type", "unknown")
+                fault_type_counts[ft] += 1
+
+        exec_csv = os.path.join(batch_dir, "execution_records.csv")
+        if os.path.exists(exec_csv):
+            with open(exec_csv, "r", encoding="utf-8") as f:
+                import csv as csv_mod
+                reader = csv_mod.DictReader(f)
+                for row in reader:
+                    if row.get("success") == "True":
+                        success_counts["success"] += 1
+                    else:
+                        success_counts["failed"] += 1
+
+                    ft = row.get("fault_type", "unknown")
+                    dur = int(row.get("duration", "0"))
+                    total_duration += dur
+                    if ft not in duration_by_type:
+                        duration_by_type[ft] = []
+                    duration_by_type[ft].append(dur)
+
+        total = success_counts["success"] + success_counts["failed"]
+        stats = {
+            "collection_summary": {
+                "total_tasks": total,
+                "successful_tasks": success_counts["success"],
+                "failed_tasks": success_counts["failed"],
+                "success_rate": round(success_counts["success"] / total * 100, 2) if total > 0 else 0,
+                "total_duration_seconds": total_duration,
+                "total_duration_hours": round(total_duration / 3600, 2),
+                "average_task_duration_seconds": round(total_duration / total, 2) if total > 0 else 0,
+            },
+            "fault_type_distribution": {},
+            "duration_statistics": {},
+        }
+
+        for ft, count in sorted(fault_type_counts.items()):
+            stats["fault_type_distribution"][ft] = {
+                "count": count,
+                "percentage": round(count / total * 100, 2) if total > 0 else 0,
+            }
+
+        for ft, durations in sorted(duration_by_type.items()):
+            stats["duration_statistics"][ft] = {
+                "count": len(durations),
+                "min_seconds": min(durations),
+                "max_seconds": max(durations),
+                "avg_seconds": round(sum(durations) / len(durations), 2),
+                "median_seconds": sorted(durations)[len(durations) // 2],
+            }
+
+        stats_path = os.path.join(batch_dir, "collection_statistics.json")
+        with open(stats_path, "w", encoding="utf-8") as f:
+            json.dump(stats, f, indent=2, ensure_ascii=False)
+
+        self.logger.info(f"采集统计已保存: {stats_path}")
+
+    def _save_experiment_config(self, batch_dir: str, sequence: list):
+        """保存实验配置到批次目录，供论文复现使用"""
+        from collections import Counter
+
+        fault_counts = Counter()
+        for fault_type, count in sequence:
+            fault_counts[fault_type] += count
+
+        total = sum(fault_counts.values())
+        normal_count = fault_counts.get("normal", 0)
+        fault_count = total - normal_count
+
+        config = {
+            "experiment": {
+                "name": f"FaultLLM_Data_Collection_{datetime.now().strftime('%Y%m%d')}",
+                "description": "FaultLLM故障诊断数据集采集实验",
+                "version": "2.0",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+            },
+            "data_collection_config": {
+                "total_samples": total,
+                "normal_samples": normal_count,
+                "fault_samples": fault_count,
+                "normal_ratio": round(normal_count / total, 4) if total > 0 else 0,
+                "fault_ratio": round(fault_count / total, 4) if total > 0 else 0,
+                "workload_type": self.workload,
+                "data_size": self.data_size,
+                "interval_range_seconds": [self.config.interval_min, self.config.interval_max],
+                "interval_distribution": {
+                    "type": "Weibull",
+                    "shape_k": 1.5,
+                    "scale_lambda": 180,
+                    "reference": "DSN2017-Wang-DataCenterFailures-PLOSONE2017-Liu-WeibullCloud"
+                },
+                "max_batch_size": self.max_batch_size,
+            },
+            "fault_distribution": {
+                "design": "加权分布，基于真实场景故障频率",
+                "reference": "基于Tsinghua/Baidu DSN 2017真实故障分布数据",
+                "fault_types": {},
+            },
+            "hadoop_cluster": {
+                "master_node": "cxw-1 (10.10.0.82)",
+                "slave_nodes": ["cxw-2 (10.10.0.83)", "cxw-3 (10.10.0.84)", "cxw-4 (10.10.0.85)"],
+                "total_nodes": 4,
+                "hadoop_version": "3.3.6",
+                "hdfs_replication": 3,
+            },
+            "fault_injection_tools": {
+                "code_level": ["custom_mapper_reducer", "hadoop_streaming"],
+                "process_level": ["SIGSTOP/SIGCONT", "process_kill_restart"],
+                "network_level": ["chaosblade", "iptables"],
+                "system_level": ["hdfs_permission", "hadoop_loglevel_servlet"],
+            },
+            "data_sources": {
+                "metrics": "Prometheus + NodeExporter + JMXExporter",
+                "logs": "Loki + HDFS Log Aggregation",
+                "topology": "YARN ResourceManager API",
+            },
+            "fault_categories": {
+                "baseline": ["normal"],
+                "data_distribution": ["data_skew", "data_bloat"],
+                "task_execution": ["task_fail", "long_tail"],
+                "scheduling": ["wait_time", "runtime_delta"],
+                "node_management": ["exit_time", "process_restart", "heartbeat_timeout"],
+                "network": ["network_latency", "network_loss"],
+                "log_anomaly": ["log_level_change"],
+                "hardware": ["disk_error", "disk_full"],
+            }
+        }
+
+        for ft, count in sorted(fault_counts.items()):
+            config["fault_distribution"]["fault_types"][ft] = {
+                "count": count,
+                "percentage": round(count / total * 100, 2) if total > 0 else 0,
+                "label": FAULT_LABELS.get(ft, 0),
+                "description": get_fault_config(ft).get("description", "") if ft not in ("normal", "wordcount") else "正常任务（无故障注入）",
+                "category": get_fault_config(ft).get("category", "baseline") if ft not in ("normal", "wordcount") else "baseline",
+            }
+
+        config_path = os.path.join(batch_dir, "experiment_config.json")
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+
+        self.logger.info(f"实验配置已保存: {config_path}")
+
+    def _save_fault_injection_detail(self, task_dir: str, fault_type: str, result: Dict, start_time: datetime, end_time: datetime):
+        """保存故障注入详细参数到任务目录，供论文分析使用"""
+        fault_info = get_fault_config(fault_type) if fault_type not in ("normal", "wordcount") else {}
+
+        detail = {
+            "task_id": result.get("application_id", ""),
+            "fault_type": fault_type,
+            "fault_label": FAULT_LABELS.get(fault_type, 0),
+            "fault_category": fault_info.get("category", "baseline"),
+            "description": fault_info.get("description", "正常任务"),
+            "injection_method": fault_info.get("injection_method", ""),
+            "affected_nodes": fault_info.get("affected_nodes", []),
+            "affected_services": fault_info.get("affected_services", []),
+            "inject_stage": fault_info.get("inject_stage", ""),
+            "time_window": {
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "duration_seconds": (end_time - start_time).seconds,
+                "log_collection_start": (start_time - timedelta(minutes=10)).isoformat(),
+                "log_collection_end": (end_time + timedelta(minutes=15)).isoformat(),
+            },
+            "workload": {
+                "type": self.workload if self.workload != "random" else "wordcount",
+                "data_size": self.data_size,
+                "input_path": WORKLOAD_INPUT_PATHS.get(self.workload if self.workload != "random" else "wordcount", ""),
+            },
+            "cluster": {
+                "master": "cxw-1",
+                "slaves": ["cxw-2", "cxw-3", "cxw-4"],
+                "total_nodes": 4,
+            },
+            "execution": {
+                "success": result.get("success", False),
+                "application_id": result.get("application_id", ""),
+                "job_id": result.get("job_id", ""),
+                "error": result.get("error", ""),
+            },
+            "data_collection": {
+                "logs_dir": result.get("logs_dir", ""),
+                "metrics_dir": result.get("metrics_dir", ""),
+            }
+        }
+
+        detail_path = os.path.join(task_dir, "fault_injection_detail.json")
+        with open(detail_path, "w", encoding="utf-8") as f:
+            json.dump(detail, f, indent=2, ensure_ascii=False)
+
+        self.logger.info(f"故障注入详情已保存: {detail_path}")
+
     def _create_batch_dir(self) -> str:
         """创建批次目录"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -208,6 +454,82 @@ class UnifiedScheduler:
             
             self._wait_for_task(application_id)
             
+            # Recovery wait: ensure fault effects are fully dissipated
+            # Prevents residual effects (e.g. ChaosBlade CPU limits) from affecting next task
+            import time as _recovery_time
+            _RECOVERY_WAIT = 45
+            self.logger.info(f"Recovery wait: {_RECOVERY_WAIT}s to ensure fault effects fully dissipated")
+            _recovery_time.sleep(_RECOVERY_WAIT)
+            
+            # Post-recovery safety check: clean up residual files and check disk space
+            try:
+                for _chk_node in ["cxw-1", "cxw-2", "cxw-3", "cxw-4"]:
+                    try:
+                        # Clean ChaosBlade residual files
+                        subprocess.run(
+                            f"ssh -o ConnectTimeout=5 {_chk_node} \"echo ubuntu | sudo -S rm -f /chaos_filldisk.log.dat /chaos_burnio.read /chaos_burnio.write /tmp/disk_stress /tmp/disk_fill_stress 2>/dev/null || true\"",
+                            shell=True, capture_output=True, text=True, timeout=10
+                        )
+                        # Check disk usage
+                        _df_result = subprocess.run(
+                            f"ssh -o ConnectTimeout=5 {_chk_node} \"df / | tail -1 | awk '{{print \\$5}}' | tr -d '%'\"",
+                            shell=True, capture_output=True, text=True, timeout=10
+                        )
+                        _usage = int(_df_result.stdout.strip()) if _df_result.stdout.strip().isdigit() else 0
+                        if _usage > 90:
+                            self.logger.warning(f"⚠ 磁盘使用率过高 on {_chk_node}: {_usage}%")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # Post-recovery DataNode health check: ensure all DataNodes are alive
+            try:
+                _dn_report = subprocess.run(
+                    f"{self.hadoop_home}/bin/hdfs dfsadmin -report 2>&1",
+                    shell=True, capture_output=True, text=True, timeout=15
+                )
+                _live_match = __import__('re').search(r'Live datanodes \((\d+)\)', _dn_report.stdout)
+                _live_count = int(_live_match.group(1)) if _live_match else 0
+                if _live_count < 3:
+                    self.logger.warning(f"⚠ DataNode不足: Live={_live_count}, 尝试重启...")
+                    # Find dead nodes and restart them
+                    for _dn_node in ["cxw-2", "cxw-3", "cxw-4"]:
+                        try:
+                            _dn_check = subprocess.run(
+                                f"ssh -o ConnectTimeout=5 {_dn_node} 'jps | grep DataNode | wc -l'",
+                                shell=True, capture_output=True, text=True, timeout=10
+                            )
+                            if _dn_check.stdout.strip() == "0":
+                                self.logger.info(f"  重启DataNode on {_dn_node}...")
+                                subprocess.run(
+                                    f"ssh -o ConnectTimeout=5 {_dn_node} '/opt/hadoop/bin/hdfs --daemon stop datanode 2>/dev/null || true'",
+                                    shell=True, capture_output=True, text=True, timeout=10
+                                )
+                                import time; time.sleep(2)
+                                subprocess.run(
+                                    f"ssh -o ConnectTimeout=5 {_dn_node} '/opt/hadoop/bin/hdfs --daemon start datanode'",
+                                    shell=True, capture_output=True, text=True, timeout=10
+                                )
+                                self.logger.info(f"  ✔ DataNode on {_dn_node} 已重启")
+                                import time; time.sleep(10)
+                        except Exception as _dn_e:
+                            self.logger.warning(f"  ⚠ DataNode重启失败 on {_dn_node}: {_dn_e}")
+                    # Verify after restart
+                    import time; time.sleep(15)
+                    _dn_report2 = subprocess.run(
+                        f"{self.hadoop_home}/bin/hdfs dfsadmin -report 2>&1",
+                        shell=True, capture_output=True, text=True, timeout=15
+                    )
+                    _live_match2 = __import__('re').search(r'Live datanodes \((\d+)\)', _dn_report2.stdout)
+                    _live_count2 = int(_live_match2.group(1)) if _live_match2 else 0
+                    if _live_count2 >= 3:
+                        self.logger.info(f"  ✔ DataNode恢复成功: Live={_live_count2}")
+                    else:
+                        self.logger.warning(f"  ⚠ DataNode仍未完全恢复: Live={_live_count2}")
+            except Exception as _dn_ex:
+                self.logger.warning(f"⚠ DataNode健康检查异常: {_dn_ex}")
+            
             end_time = datetime.now()
             duration = (end_time - start_time).seconds
             
@@ -233,6 +555,13 @@ class UnifiedScheduler:
                 )
                 log_files.extend(mr_files)
                 log_count += mr_count
+                try:
+                    disk_f, disk_c = self.log_collector.collect_rm_nm_logs_from_disk(
+                        start_time, end_time, logs_dir)
+                    log_files.extend(disk_f)
+                    log_count += disk_c
+                except Exception:
+                    pass
             
             metric_files = self.metrics_collector.collect_fault_specific_metrics(
                 fault_type,
@@ -260,6 +589,7 @@ class UnifiedScheduler:
             
             self._record_execution(batch_dir, result)
             self._record_fault_label(batch_dir, result)
+            self._save_fault_injection_detail(task_dir, fault_type, result, start_time, end_time)
             
             return result
 
@@ -267,34 +597,54 @@ class UnifiedScheduler:
             task_dir = self._create_task_dir(fault_type, batch_dir)
             result = self._create_error_result(start_time, fault_type, str(e), seq_idx, batch_dir, task_dir)
             self._record_execution(batch_dir, result)
-            self._record_fault_label(batch_dir, result)
             return result
     
     def _execute_normal_task(self, start_time: datetime, seq_idx: int, batch_dir: str) -> Dict:
         """执行正常任务（无故障）"""
+        workload_type = self._get_workload_type()
         hadoop_home = os.environ.get("HADOOP_HOME", "/opt/hadoop")
-        
-        cmd = f"""
-        {hadoop_home}/bin/hadoop jar {hadoop_home}/share/hadoop/tools/lib/hadoop-streaming-*.jar \
-            -D mapreduce.job.name=wordcount_benchmark \
-            -D mapreduce.job.maps=24 \
-            -D mapreduce.job.reduces=8 \
-            -input /HiBench/HiBench/Wordcount/Input \
-            -output /user/hadoop/normal_output_{int(start_time.timestamp())} \
-            -mapper "python3 mapper.py" \
-            -reducer "python3 reducer.py" \
-            -file {SCRIPTS_DIR}/common_mapreduce/mapper.py \
-            -file {SCRIPTS_DIR}/common_mapreduce/reducer.py
-        """
-        
+        input_path = WORKLOAD_INPUT_PATHS.get(workload_type, WORKLOAD_INPUT_PATHS["wordcount"])
+        output_path = f"/user/hadoop/normal_{workload_type}_output_{int(start_time.timestamp())}"
+
+        if workload_type == "terasort":
+            cmd = f"""
+            {hadoop_home}/bin/hadoop jar {hadoop_home}/share/hadoop/mapreduce/hadoop-mapreduce-examples-*.jar terasort                 -Dmapreduce.job.maps=24                 -Dmapreduce.job.reduces=8                 {input_path} {output_path}
+            """
+        elif workload_type == "sort":
+            cmd = f"""
+            {hadoop_home}/bin/hadoop jar {hadoop_home}/share/hadoop/tools/lib/hadoop-streaming-*.jar \
+                -D mapreduce.job.name=sort_benchmark \
+                -D mapreduce.job.maps=24 \
+                -D mapreduce.job.reduces=8 \
+                -inputformat org.apache.hadoop.mapred.SequenceFileInputFormat \
+                -input {input_path} \
+                -output {output_path} \
+                -mapper "cat" \
+                -reducer "cat"
+            """
+        else:
+            cmd = f"""
+            {hadoop_home}/bin/hadoop jar {hadoop_home}/share/hadoop/tools/lib/hadoop-streaming-*.jar \
+                -D mapreduce.job.name=wordcount_benchmark \
+                -D mapreduce.job.maps=24 \
+                -D mapreduce.job.reduces=8 \
+                -inputformat org.apache.hadoop.mapred.SequenceFileInputFormat \
+                -input {input_path} \
+                -output {output_path} \
+                -mapper "python3 mapper.py" \
+                -reducer "python3 reducer.py" \
+                -file {SCRIPTS_DIR}/common_mapreduce/mapper.py \
+                -file {SCRIPTS_DIR}/common_mapreduce/reducer.py
+            """
+
         try:
             result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=600
+                cmd, shell=True, capture_output=True, text=True, timeout=900
             )
-            
+
             end_time = datetime.now()
             duration = (end_time - start_time).seconds
-            
+
             job_id = None
             application_id = None
             output_lines = result.stdout.splitlines() + result.stderr.splitlines()
@@ -303,36 +653,64 @@ class UnifiedScheduler:
                 if match:
                     application_id = f"application_{match.group(1)}"
                     job_id = application_id
-            
-            self.logger.info(f"Wordcount任务完成, application_id: {application_id}")
-            
-            # 等待日志写入NFS
+
+            # Fallback: query YARN for recently finished apps if app_id not found
+            if not application_id:
+                try:
+                    import subprocess as _sp
+                    _cutoff = int(start_time.timestamp())
+                    _result = subprocess.run(
+                        ["/opt/hadoop/bin/yarn", "application", "-list", "-appStates", "RUNNING,FINISHED,FAILED,KILLED"],
+                        capture_output=True, text=True, timeout=15
+                    )
+                    for _line in _result.stdout.splitlines():
+                        _parts = _line.split()
+                        if len(_parts) >= 4 and _parts[1].isdigit():
+                            _app_ts = int(_parts[1]) // 1000  # YARN timestamp is in ms
+                            if abs(_app_ts - _cutoff) < 1200:  # within 20 min window
+                                _match = re.search(r'(application_\d+_\d+)', _line)
+                                if _match:
+                                    application_id = _match.group(1)
+                                    job_id = application_id
+                                    self.logger.info(f"找到应用ID (YARN回退): {application_id}")
+                                    break
+                except Exception as _e:
+                    self.logger.debug(f"YARN回退查询失败: {_e}")
+
+            self.logger.info(f"{workload_type}任务完成, application_id: {application_id}")
+
             self._wait_for_task(application_id)
-            
-            task_dir = self._create_task_dir("wordcount", batch_dir, application_id)
-            
+
+            task_dir = self._create_task_dir(workload_type, batch_dir, application_id)
+
             logs_dir = os.path.join(task_dir, "logs")
             metrics_dir = os.path.join(task_dir, "metrics")
             os.makedirs(logs_dir, exist_ok=True)
             os.makedirs(metrics_dir, exist_ok=True)
-            
-            # 扩大日志收集时间窗口：任务开始前10分钟到结束后15分钟
+
             collect_start = (start_time - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%S")
             collect_end = (end_time + timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%S")
-            
+
             self.logger.info(f"日志收集时间窗口: {collect_start} ~ {collect_end}")
-            
+
             log_files, log_count = self.log_collector.collect_from_loki(
                 collect_start, collect_end, logs_dir, application_id
             )
-            
+
             if application_id:
                 mr_files, mr_count = self.log_collector.collect_mapreduce_logs(
                     application_id, logs_dir
                 )
                 log_files.extend(mr_files)
                 log_count += mr_count
-            
+                try:
+                    disk_f, disk_c = self.log_collector.collect_rm_nm_logs_from_disk(
+                        start_time, end_time, logs_dir)
+                    log_files.extend(disk_f)
+                    log_count += disk_c
+                except Exception:
+                    pass
+
             metric_files = self.metrics_collector.collect_fault_specific_metrics(
                 "normal",
                 int((start_time - timedelta(minutes=3)).timestamp()),
@@ -342,7 +720,7 @@ class UnifiedScheduler:
 
             exec_result = {
                 "seq_idx": seq_idx,
-                "fault_type": "wordcount",
+                "fault_type": workload_type,
                 "start_time": start_time.isoformat(),
                 "end_time": end_time.isoformat(),
                 "duration": duration,
@@ -353,28 +731,115 @@ class UnifiedScheduler:
                 "metrics_dir": metrics_dir,
                 "error": result.stderr if result.returncode != 0 else "",
                 "nodes": "",
-                "method": "标准WordCount实现",
+                "method": f"标准{workload_type}实现",
                 "task_dir": task_dir
             }
-            
+
             self._record_execution(batch_dir, exec_result)
             self._record_fault_label(batch_dir, exec_result)
-            
+            self._save_fault_injection_detail(task_dir, workload_type, exec_result, start_time, end_time)
+
             return exec_result
-            
+
         except subprocess.TimeoutExpired:
-            task_dir = self._create_task_dir("wordcount", batch_dir)
-            result = self._create_error_result(start_time, "wordcount", "任务超时", seq_idx, batch_dir, task_dir)
-            self._record_execution(batch_dir, result)
-            self._record_fault_label(batch_dir, result)
-            return result
+            self.logger.info("普通任务超时，尝试收集已生成的日志和指标...")
+            try:
+                end_time = datetime.now()
+                duration = (end_time - start_time).seconds
+
+                job_id = None
+                application_id = None
+                for line in []:  # subprocess timed out, no output available
+                    match = re.search(r'application_(\d+_\d+)', line)
+                    if match:
+                        application_id = f"application_{match.group(1)}"
+                        job_id = application_id
+
+                if not application_id:
+                    try:
+                        import subprocess as _sp
+                        _cutoff = int(start_time.timestamp())
+                        _r = subprocess.run(
+                            ["/opt/hadoop/bin/yarn", "application", "-list", "-appStates", "RUNNING,FINISHED,FAILED,KILLED"],
+                            capture_output=True, text=True, timeout=15
+                        )
+                        for _l in _r.stdout.splitlines():
+                            _p = _l.split()
+                            if len(_p) >= 4 and _p[1].isdigit():
+                                _ts = int(_p[1]) // 1000
+                                if abs(_ts - _cutoff) < 1200:
+                                    _m = re.search(r'(application_\d+_\d+)', _l)
+                                    if _m:
+                                        application_id = _m.group(1)
+                                        job_id = application_id
+                                        break
+                    except:
+                        pass
+
+                task_dir = self._create_task_dir(workload_type, batch_dir, application_id)
+                logs_dir = os.path.join(task_dir, "logs")
+                metrics_dir = os.path.join(task_dir, "metrics")
+                os.makedirs(logs_dir, exist_ok=True)
+                os.makedirs(metrics_dir, exist_ok=True)
+
+                collect_start = (start_time - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%S")
+                collect_end = (end_time + timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%S")
+
+                log_files, log_count = self.log_collector.collect_from_loki(
+                    collect_start, collect_end, logs_dir, application_id
+                )
+                if application_id:
+                    mr_files, mr_count = self.log_collector.collect_mapreduce_logs(
+                        application_id, logs_dir
+                    )
+                    log_files.extend(mr_files)
+                    log_count += mr_count
+                    try:
+                        disk_f, disk_c = self.log_collector.collect_rm_nm_logs_from_disk(
+                            start_time, end_time, logs_dir)
+                        log_files.extend(disk_f)
+                        log_count += disk_c
+                    except Exception:
+                        pass
+
+                metric_files = self.metrics_collector.collect_fault_specific_metrics(
+                    workload_type,
+                    int((start_time - timedelta(minutes=3)).timestamp()),
+                    int((end_time + timedelta(minutes=5)).timestamp()),
+                    metrics_dir
+                )
+
+                exec_result = {
+                    "seq_idx": seq_idx,
+                    "fault_type": workload_type,
+                    "start_time": start_time.isoformat(),
+                    "end_time": end_time.isoformat(),
+                    "duration": duration,
+                    "success": True,
+                    "job_id": job_id or "",
+                    "application_id": application_id or "",
+                    "logs_dir": logs_dir,
+                    "metrics_dir": metrics_dir,
+                    "error": "任务超时但数据已收集",
+                    "nodes": "",
+                    "method": f"标准{workload_type}实现(超时收集)",
+                    "task_dir": task_dir
+                }
+                self._record_execution(batch_dir, exec_result)
+                self._record_fault_label(batch_dir, exec_result)
+                return exec_result
+            except Exception as _e2:
+                self.logger.error(f"超时后收集数据失败: {_e2}")
+                task_dir = self._create_task_dir(workload_type, batch_dir)
+                result = self._create_error_result(start_time, workload_type, "任务超时", seq_idx, batch_dir, task_dir)
+                self._record_execution(batch_dir, result)
+                return result
         except Exception as e:
-            task_dir = self._create_task_dir("wordcount", batch_dir)
-            result = self._create_error_result(start_time, "wordcount", str(e), seq_idx, batch_dir, task_dir)
+            task_dir = self._create_task_dir(workload_type, batch_dir)
+            result = self._create_error_result(start_time, workload_type, str(e), seq_idx, batch_dir, task_dir)
             self._record_execution(batch_dir, result)
-            self._record_fault_label(batch_dir, result)
             return result
-    
+
     def _run_fault_script(self, script_path: str, fault_type: str) -> tuple:
         """运行故障脚本"""
         script_type = get_fault_config(fault_type).get("script_type", "sh")
@@ -394,11 +859,37 @@ class UnifiedScheduler:
                 text=True
             )
         
+        import select
+        import time as _time
         output = []
-        for line in iter(process.stdout.readline, ''):
-            output.append(line)
-            print(line, end='')
-        process.wait()
+        start_time = _time.time()
+        max_timeout = 900
+        
+        while True:
+            if _time.time() - start_time > max_timeout:
+                _msg = ' timeout (' + str(max_timeout) + 's), killing process'
+                print(f"\nFault script {fault_type}{_msg}")
+                process.kill()
+                break
+            
+            reads, _, _ = select.select([process.stdout], [], [], 1.0)
+            if reads:
+                line = process.stdout.readline()
+                if not line:
+                    break
+                output.append(line)
+                print(line, end="")
+            
+            if process.poll() is not None and not reads:
+                remaining = process.stdout.read()
+                if remaining:
+                    output.append(remaining)
+                    print(remaining, end="")
+                break
+        
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
         
         job_id = None
         application_id = None
@@ -412,36 +903,59 @@ class UnifiedScheduler:
                 if not job_id:
                     job_id = application_id
         
+        # Fallback: query YARN for recently finished apps
+        if not application_id:
+            try:
+                import subprocess as _sp
+                _cutoff = int(start_time)
+                _r = subprocess.run(["/opt/hadoop/bin/yarn", "application", "-list", "-appStates", "RUNNING,FINISHED,FAILED,KILLED"],
+                             capture_output=True, text=True, timeout=15)
+                for _l in _r.stdout.splitlines():
+                    _p = _l.split()
+                    if len(_p) >= 4 and _p[1].isdigit():
+                        _ts = int(_p[1]) // 1000
+                        if abs(_ts - _cutoff) < 1200:
+                            _m = re.search(r'(application_\d+_\d+)', _l)
+                            if _m:
+                                application_id = _m.group(1)
+                                job_id = application_id
+                                break
+            except:
+                pass
+        
         return job_id, application_id
     
     def _wait_for_task(self, application_id: str = None):
-        """等待任务完成，并确保日志已写入NFS"""
+        """等待任务完成，并确保日志已写入HDFS"""
         import time
-        # 基础等待时间：10秒
         time.sleep(10)
-        
-        # 如果提供了application_id，等待日志文件出现在NFS上
+
         if application_id:
-            mr_logs_base = "/hdfs-nfs/tmp/logs"
             app_id_parts = application_id.split('_')
             if len(app_id_parts) >= 3:
                 app_id_num = app_id_parts[-1]
-                potential_paths = [
-                    f"{mr_logs_base}/ubuntu/bucket-cxw745-logs-tfile/{app_id_num}/{application_id}",
-                    f"{mr_logs_base}/{application_id}",
+                potential_hdfs_paths = [
+                    f"/tmp/logs/ubuntu/bucket-cxw745-logs-tfile/{app_id_num}/{application_id}",
+                    f"/tmp/logs/{application_id}",
                 ]
-                
-                # 最多等待60秒，检查日志文件是否出现
-                for i in range(12):  # 12 * 5 = 60秒
-                    for path in potential_paths:
-                        if os.path.exists(path) and os.listdir(path):
-                            self.logger.info(f"日志文件已就绪: {path}")
-                            return
-                    self.logger.info(f"等待日志文件出现... ({i+1}/12)")
+
+                for i in range(12):
+                    for hdfs_path in potential_hdfs_paths:
+                        try:
+                            result = subprocess.run(
+                                ["/opt/hadoop/bin/hdfs", "dfs", "-test", "-d", hdfs_path],
+                                capture_output=True, text=True, timeout=15
+                            )
+                            if result.returncode == 0:
+                                self.logger.info(f"日志目录已就绪: {hdfs_path}")
+                                return
+                        except Exception:
+                            pass
+                    self.logger.info(f"等待日志目录出现... ({i+1}/12)")
                     time.sleep(5)
-                
-                self.logger.warning(f"日志文件未在预期时间内出现: {application_id}")
-    
+
+                self.logger.warning(f"日志目录未在预期时间内出现: {application_id}")
+
     def _create_task_dir(self, fault_type: str, batch_dir: str, application_id: str = None) -> str:
         """创建任务目录"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -481,6 +995,10 @@ class UnifiedScheduler:
         Returns:
             True if success
         """
+        if self.skip_prepare:
+            self.logger.info("跳过数据准备 (--skip-prepare)")
+            return True
+
         self.logger.info("=" * 60)
         self.logger.info("准备测试数据")
         self.logger.info("=" * 60)
@@ -520,6 +1038,7 @@ class UnifiedScheduler:
             self.logger.info(f"Normal数量: {self.config.normal_count}")
         
         self.logger.info(f"间隔范围: {self.config.interval_min}s - {self.config.interval_max}s")
+        self.logger.info("间隔分布: Weibull(k=1.5, λ=180)")
         self.logger.info(f"最大日志数: {self.config.max_logs or '无限制'}")
         self.logger.info(f"最大时长: {self.config.max_duration or '无限制'}s")
 
@@ -551,6 +1070,7 @@ class UnifiedScheduler:
             self.logger.info("=" * 60)
             
             batch_dir = self._create_batch_dir()
+            self._save_experiment_config(batch_dir, self.config.sequence)
             self._init_csv_files(batch_dir)
             
             for i in range(batch_tasks):
@@ -570,17 +1090,16 @@ class UnifiedScheduler:
                     self.logger.error(f"执行 {fault_type} 失败: {e}")
                     result = self._create_error_result(datetime.now(), fault_type, str(e), task_idx, batch_dir)
                     self._record_execution(batch_dir, result)
-                    self._record_fault_label(batch_dir, result)
                     results.append(result)
                 
                 if i < batch_tasks - 1 and not self._shutdown_requested:
                     import time
-                    import random
-                    interval = random.randint(self.config.interval_min, self.config.interval_max)
+                    interval = _sample_interval(self.config.interval_min, self.config.interval_max)
                     self.logger.info(f"等待 {interval} 秒后执行下一次...")
                     time.sleep(interval)
             
             self._save_batch_summary(batch_dir, batch_num + 1, batch_count)
+            self._save_collection_statistics(batch_dir)
         
         self.logger.info("=" * 60)
         self.logger.info("调度完成")
@@ -609,7 +1128,7 @@ class UnifiedScheduler:
             
             if self.config.include_normal:
                 for _ in range(self.config.normal_count):
-                    sequence.append("wordcount")
+                    sequence.append("normal")
         
         random.shuffle(sequence)
         return sequence
@@ -659,7 +1178,8 @@ def parse_fault_counts(counts_str: str) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="统一故障注入调度器 V2")
     parser.add_argument("--output-dir", default=OUTPUT_BASE, help=f"输出目录 (默认: {OUTPUT_BASE})")
-    parser.add_argument("--data-size", default="tiny",
+    parser.add_argument("--workload", default="random", choices=["random", "wordcount", "sort", "terasort"], help="workload类型")
+    parser.add_argument("--data-size", default="small",
                         choices=list(HIBENCH_DATA_SIZES.keys()),
                         help="数据大小 (tiny/small/large/huge/gigantic)")
     
@@ -688,8 +1208,9 @@ def main():
     parser.add_argument("--max-logs", type=int, help="收集到多少条日志停止")
     parser.add_argument("--max-duration", type=int, help="最大运行时长（秒）")
     parser.add_argument("--interval-min", type=int, default=60, help="最小间隔（秒）")
-    parser.add_argument("--interval-max", type=int, default=300, help="最大间隔（秒）")
+    parser.add_argument("--interval-max", type=int, default=300, help="最大间隔（秒）（Weibull截断上限）")
     parser.add_argument("--max-batch-size", type=int, default=50, help="每批次最大任务数")
+    parser.add_argument("--skip-prepare", action="store_true", default=False, help="跳过数据准备步骤")
 
     args = parser.parse_args()
 
@@ -733,7 +1254,16 @@ def main():
             interval_max=args.interval_max
         )
 
-    scheduler = UnifiedScheduler(config, args.output_dir, args.data_size, args.max_batch_size)
+    scheduler = UnifiedScheduler(config, args.output_dir, args.data_size, args.max_batch_size, args.workload)
+    scheduler.skip_prepare = args.skip_prepare
+    # Save PID for status monitoring
+    try:
+        with open('/tmp/scheduler_python.pid', 'w') as _f:
+            _f.write(str(os.getpid()) + '\n')
+        with open('/tmp/batch_scheduler.pid', 'w') as _f:
+            _f.write(str(os.getpid()) + '\n')
+    except:
+        pass
     scheduler.run()
 
 

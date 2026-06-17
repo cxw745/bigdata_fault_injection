@@ -7,13 +7,18 @@
 import subprocess
 import time
 import sys
+sys.stdout.reconfigure(line_buffering=True)
 import os
+import signal
+import atexit
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "collect_data"))
 from fault_marker import mark_fault_start, mark_fault_end, mark_fault_injection
 
+
+os.environ["PATH"] = "/opt/hadoop/bin:" + os.environ.get("PATH", "")
 FAULT_DURATION = 60
-RM_HOST = "cpf-1"
+RM_HOST = "cxw-1"
 
 SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -22,6 +27,38 @@ def run(cmd):
 
 def run_background(cmd):
     return subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+
+# Global state for cleanup
+_rm_pid = None
+_cleanup_done = False
+
+def do_cleanup():
+    global _cleanup_done
+    if _cleanup_done:
+        return
+    _cleanup_done = True
+    if _rm_pid:
+        print(f'Restoring ResourceManager (PID: {_rm_pid})...')
+        try:
+            run(f'ssh {RM_HOST} "sudo kill -CONT {_rm_pid}"')
+            print(f'  ResourceManager resumed')
+        except Exception as e:
+            print(f'  WARNING: Failed to resume RM: {e}')
+            # Fallback: find and resume all stopped processes
+            try:
+                run(f'ssh {RM_HOST} "sudo bash -c \"ps aux | awk \$8~/T/ | grep -v grep | grep -v idle_inject | awk \"{{print \$2}}\" | xargs -r kill -CONT\""')
+            except:
+                pass
+
+def signal_handler(signum, frame):
+    print(f'\nWARNING: Signal received, cleaning up...')
+    do_cleanup()
+    sys.exit(130)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+atexit.register(do_cleanup)
 
 print("=" * 60)
 print("等待时间异常故障注入 - ResourceManager")
@@ -41,15 +78,16 @@ mapper_path = os.path.join(SCRIPTS_DIR, "common_mapreduce", "mapper.py")
 reducer_path = os.path.join(SCRIPTS_DIR, "common_mapreduce", "reducer.py")
 
 cmd = f"""
-{hadoop_cmd} jar {hadoop_home}/share/hadoop/tools/lib/hadoop-streaming-*.jar \
-    -D mapreduce.job.name="wait_time_fault" \
-    -D mapreduce.job.maps=24 \
-    -D mapreduce.job.reduces=8 \
-    -input {input_path} \
-    -output {output_path} \
-    -mapper "python3 mapper.py" \
-    -reducer "python3 reducer.py" \
-    -file {mapper_path} \
+{hadoop_cmd} jar {hadoop_home}/share/hadoop/tools/lib/hadoop-streaming-*.jar \\
+    -D mapreduce.job.name="wait_time_fault" \\
+    -D mapreduce.job.maps=24 \\
+    -D mapreduce.job.reduces=8 \\
+    -inputformat org.apache.hadoop.mapred.SequenceFileInputFormat \\
+    -input {input_path} \\
+    -output {output_path} \\
+    -mapper "python3 mapper.py" \\
+    -reducer "python3 reducer.py" \\
+    -file {mapper_path} \\
     -file {reducer_path}
 """
 
@@ -96,12 +134,16 @@ if not found:
 
 if not found:
     print("  ✘ 未找到运行中的任务，跳过故障注入")
-    process.wait()
+    try:
+        process.wait(timeout=300)
+    except subprocess.TimeoutExpired:
+        print("\n⚠ MapReduce任务超时(300s)，强制终止")
+        process.kill()
+        process.wait(timeout=5)
     sys.exit(0)
 
 print(f"\n▶ 查找 ResourceManager JVM 进程 PID ...")
 
-# 只匹配真正的 RM 主类
 cmd = (
     f"ssh {RM_HOST} "
     "\"ps -eo pid,cmd | "
@@ -112,25 +154,39 @@ out = run(cmd)
 
 if not out:
     print("✘ 未找到 ResourceManager JVM 进程")
-    process.wait()
+    try:
+        process.wait(timeout=300)
+    except subprocess.TimeoutExpired:
+        print("\n⚠ MapReduce任务超时(300s)，强制终止")
+        process.kill()
+        process.wait(timeout=5)
     sys.exit(1)
 
 lines = out.splitlines()
 if len(lines) != 1:
     print("✘ 匹配到多个 RM 进程，拒绝注入以避免误杀：")
     print(out)
-    process.wait()
+    try:
+        process.wait(timeout=300)
+    except subprocess.TimeoutExpired:
+        print("\n⚠ MapReduce任务超时(300s)，强制终止")
+        process.kill()
+        process.wait(timeout=5)
     sys.exit(1)
 
 pid = lines[0].split()[0]
 print(f"✔ ResourceManager JVM PID = {pid}")
 
-# 再确认一次 PID 是否还活着
 try:
     run(f"ssh {RM_HOST} \"kill -0 {pid}\"")
 except subprocess.CalledProcessError:
     print(f"✘ PID {pid} 已不存在，终止")
-    process.wait()
+    try:
+        process.wait(timeout=300)
+    except subprocess.TimeoutExpired:
+        print("\n⚠ MapReduce任务超时(300s)，强制终止")
+        process.kill()
+        process.wait(timeout=5)
     sys.exit(1)
 
 print(f"\n▶ 注入等待时间异常，挂起 RM {FAULT_DURATION}s")
@@ -150,7 +206,12 @@ mark_fault_injection("wait_time", f"{RM_HOST}:{pid}", "SIGCONT", None)
 mark_fault_end("wait_time", {"target": "ResourceManager", "host": RM_HOST, "pid": pid})
 
 print("\n▶ 等待任务完成...")
-process.wait()
+try:
+    process.wait(timeout=300)
+except subprocess.TimeoutExpired:
+    print("\n⚠ MapReduce任务超时(300s)，强制终止")
+    process.kill()
+    process.wait(timeout=5)
 
 print("\n" + "=" * 60)
 print("🎉 等待时间异常故障注入完成")

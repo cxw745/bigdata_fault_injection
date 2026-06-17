@@ -14,11 +14,14 @@
 """
 import subprocess
 import sys
+sys.stdout.reconfigure(line_buffering=True)
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "collect_data"))
 from fault_marker import mark_fault_start, mark_fault_end, mark_fault_injection
 
+
+os.environ["PATH"] = "/opt/hadoop/bin:" + os.environ.get("PATH", "")
 SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def run(cmd):
@@ -27,6 +30,18 @@ def run(cmd):
 print("=" * 60)
 print("数据膨胀故障注入 - Mapper数据膨胀")
 print("=" * 60)
+
+
+# 磁盘空间保护：注入前检查磁盘剩余空间
+try:
+    _df_out = subprocess.check_output('df / --output=pcent', shell=True).decode()
+    _disk_pct = int(_df_out.strip().split('
+')[-1].replace('%',''))
+    if _disk_pct > 75:
+        print(f'⚠ 磁盘使用率{_disk_pct}%超过75%阈值，跳过data_bloat注入')
+        sys.exit(0)
+except Exception as _e:
+    print(f'⚠ 磁盘空间检查失败: {_e}')
 
 BLOAT_FACTOR = int(os.environ.get("BLOAT_FACTOR", "4"))
 
@@ -57,6 +72,7 @@ cmd = f"""
     -D mapreduce.job.name="data_bloat_fault" \
     -D mapreduce.job.maps=24 \
     -D mapreduce.job.reduces=8 \
+    -inputformat org.apache.hadoop.mapred.SequenceFileInputFormat \
     -input {input_path} \
     -output {output_path} \
     -mapper "python3 mapper_bloat.py" \
@@ -73,7 +89,12 @@ for line in iter(process.stdout.readline, ''):
     stdout_lines.append(line)
     print(line, end='')
 
-process.wait()
+try:
+    process.wait(timeout=300)
+except subprocess.TimeoutExpired:
+    print("\n⚠ MapReduce任务超时(300s)，强制终止")
+    process.kill()
+    process.wait(timeout=5)
 
 if process.returncode == 0:
     print("\n✔ 任务完成")

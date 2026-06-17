@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# 在本地执行：从 cpf-1 下载数据到本地 Desktop
+# 在本地执行：从 cxw-1 下载数据到本地 Desktop
 # 用法: ./sync_from_cpf1_to_local.sh
 
 # 配置
 LOCAL_DATA_DIR="$HOME/Desktop/cpf1_data"
-REMOTE_HOST="10.10.3.183"  # cpf-1 的 IP
+REMOTE_HOST="10.10.3.183"  # cxw-1 的 IP
 REMOTE_USER="ubuntu"
 REMOTE_DATA_DIR="/project/data/data_scripts/collect_data/data"
 
@@ -16,7 +16,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}=== 开始从 cpf-1 下载数据到本地 Desktop ===${NC}"
+echo -e "${GREEN}=== 开始从 cxw-1 下载数据到本地 Desktop ===${NC}"
 echo -e "${BLUE}远程目录:${NC} $REMOTE_USER@$REMOTE_HOST:$REMOTE_DATA_DIR"
 echo -e "${BLUE}本地目录:${NC} $LOCAL_DATA_DIR"
 echo ""
