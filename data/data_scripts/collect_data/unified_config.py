@@ -167,7 +167,7 @@ FAULT_CONFIG = {
         "description": "网络延迟故障 - 网络层tc注入",
         "affected_nodes": [],
         "affected_services": ["all"],
-        "injection_method": "使用tc命令注入100ms网络延迟",
+        "injection_method": "使用ChaosBlade注入2000ms网络延迟+20%丢包",
         "nodes_known": False,
         "inject_stage": "pre-run",
         "script_type": "py",
